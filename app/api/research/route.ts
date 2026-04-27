@@ -28,7 +28,7 @@ export async function GET(req: NextRequest): Promise<Response> {
         send({ type: "orchestrator:plan", data: plan });
 
         const [rawPapers, wikiContext] = await Promise.all([
-          fetchPapers(query),
+          fetchPapers(query, plan.meshTerms),
           fetchWikiContext(query),
         ]);
         send({ type: "papers:fetched", data: { count: rawPapers.length } });
@@ -75,9 +75,9 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   return new Response(stream, {
     headers: {
-      "Content-Type":      "text/event-stream",
-      "Cache-Control":     "no-cache, no-store",
-      "Connection":        "keep-alive",
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-store",
+      "Connection": "keep-alive",
       "X-Accel-Buffering": "no",
     },
   });

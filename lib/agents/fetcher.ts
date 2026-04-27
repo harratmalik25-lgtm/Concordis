@@ -14,7 +14,7 @@ const OA_BASE     = "https://api.openalex.org/works";
 const WIKI_BASE   = "https://en.wikipedia.org/api/rest_v1/page/summary";
 const UNPAYWALL   = "https://api.unpaywall.org/v2";
 const TOOL_PARAM  = `tool=concordis&email=${process.env.PUBMED_EMAIL ?? "app@concordis.ai"}`;
-const DELAY_MS    = 350;
+const DELAY_MS    = 400;
 
 const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -25,6 +25,27 @@ function invertedIndexToText(index: Record<string, number[]> | null): string {
     for (const pos of positions) words[pos] = word;
   }
   return words.filter(Boolean).join(" ");
+}
+
+function extractKeywords(text: string): string[] {
+  const stopwords = new Set([
+    "does","what","are","how","why","when","should","the","evidence","for",
+    "on","about","backed","by","rcts","rct","trial","study","studies","effect",
+    "effects","reduce","reducing","and","with","from","that","this","have","has",
+    "been","are","was","were","not","but","its","their","review","systematic",
+    "meta","analysis","clinical","randomized","controlled","quality","sleep",
+    "night","before","bed","timing","efficacy","outcomes","management","treatment",
+  ]);
+  return text.toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !stopwords.has(w));
+}
+
+function isTitleRelevant(paper: RawPaper, coreKeywords: string[]): boolean {
+  if (coreKeywords.length === 0) return true;
+  const title = paper.title.toLowerCase();
+  return coreKeywords.some(k => title.includes(k));
 }
 
 export async function fetchWikiContext(query: string): Promise<string> {
@@ -57,10 +78,10 @@ async function fetchFullText(doi: string): Promise<string | undefined> {
   } catch { return undefined; }
 }
 
-async function searchOpenAlex(query: string, limit = 4): Promise<RawPaper[]> {
+async function searchOpenAlex(searchTerm: string, limit = 5): Promise<RawPaper[]> {
   try {
     const email = process.env.PUBMED_EMAIL ?? "app@concordis.ai";
-    const url = `${OA_BASE}?search=${encodeURIComponent(query)}&filter=has_abstract:true,type:article&sort=cited_by_count:desc&per-page=${limit}&select=id,title,abstract_inverted_index,publication_year,primary_location,doi,cited_by_count&mailto=${email}`;
+    const url = `${OA_BASE}?search=${encodeURIComponent(searchTerm)}&filter=has_abstract:true,type:article&sort=cited_by_count:desc&per-page=${limit}&select=id,title,abstract_inverted_index,publication_year,primary_location,doi,cited_by_count&mailto=${email}`;
     const res = await fetch(url, { headers: { "User-Agent": "Concordis/1.0" } });
     if (!res.ok) return [];
     const data = await res.json() as {
@@ -83,10 +104,10 @@ async function searchOpenAlex(query: string, limit = 4): Promise<RawPaper[]> {
   } catch { return []; }
 }
 
-async function searchPubMed(query: string, limit = 4): Promise<RawPaper[]> {
+async function searchPubMed(searchTerm: string, limit = 5): Promise<RawPaper[]> {
   try {
     const searchRes = await fetch(
-      `${PUBMED_BASE}/esearch.fcgi?db=pubmed&retmax=${limit}&retmode=json&sort=relevance&term=${encodeURIComponent(query)}&${TOOL_PARAM}`
+      `${PUBMED_BASE}/esearch.fcgi?db=pubmed&retmax=${limit}&retmode=json&sort=relevance&term=${encodeURIComponent(searchTerm)}&${TOOL_PARAM}`
     );
     if (!searchRes.ok) return [];
     const sd = await searchRes.json() as { esearchresult: { idlist: string[] } };
@@ -113,7 +134,7 @@ async function searchPubMed(query: string, limit = 4): Promise<RawPaper[]> {
     if (!papers.length) return [];
     await delay(DELAY_MS);
     const fetchRes = await fetch(
-      `${PUBMED_BASE}/efetch.fcgi?db=pubmed&id=${ids.join(",")}&rettype=abstract&retmode=xml&${TOOL_PARAM}`
+      `${PUBMED_BASE}/efetch.fcgi?db=pubmed&id=${ids.slice(0,8).join(",")}&rettype=abstract&retmode=xml&${TOOL_PARAM}`
     );
     if (fetchRes.ok) {
       const xml = await fetchRes.text();
@@ -135,18 +156,18 @@ function deduplicate(papers: RawPaper[]): RawPaper[] {
 }
 
 export async function fetchPapers(query: string, meshTerms: string[] = []): Promise<RawPaper[]> {
-  const searchQueries = [query, ...meshTerms.slice(0, 4)];
+  const coreKeywords = extractKeywords(query);
+  const searchTerms = [query, ...meshTerms.slice(0, 4)];
 
   const allResults = await Promise.all(
-    searchQueries.flatMap(q => [searchOpenAlex(q, 4), searchPubMed(q, 4)])
+    searchTerms.flatMap(term => [searchOpenAlex(term, 5), searchPubMed(term, 5)])
   );
 
-  const top8 = deduplicate(allResults.flat())
+  const all = deduplicate(allResults.flat());
+  const relevant = all.filter(p => isTitleRelevant(p, coreKeywords));
+  const candidates = relevant.length >= 3 ? relevant : all;
+
+  return candidates
     .sort((a, b) => (b.citations ?? 0) - (a.citations ?? 0))
     .slice(0, 8);
-
-  return Promise.all(top8.map(async paper => {
-    const fullText = await fetchFullText(paper.doi);
-    return fullText ? { ...paper, fullText } : paper;
-  }));
 }

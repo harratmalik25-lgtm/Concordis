@@ -10,22 +10,11 @@ export type RawPaper = {
 };
 
 const PUBMED_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
-const OA_BASE     = "https://api.openalex.org/works";
 const WIKI_BASE   = "https://en.wikipedia.org/api/rest_v1/page/summary";
 const TOOL_PARAM  = `tool=concordis&email=${process.env.PUBMED_EMAIL ?? "app@concordis.ai"}`;
 const DELAY_MS    = 400;
-const BIOMEDICAL_CONCEPT = "C71924100";
 
 const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
-
-function invertedIndexToText(index: Record<string, number[]> | null): string {
-  if (!index) return "";
-  const words: string[] = [];
-  for (const [word, positions] of Object.entries(index)) {
-    for (const pos of positions) words[pos] = word;
-  }
-  return words.filter(Boolean).join(" ");
-}
 
 function topicWords(query: string): string[] {
   const noise = new Set([
@@ -60,34 +49,7 @@ export async function fetchWikiContext(query: string): Promise<string> {
   } catch { return ""; }
 }
 
-async function searchOpenAlex(titleTerms: string, limit = 5): Promise<RawPaper[]> {
-  try {
-    const email = process.env.PUBMED_EMAIL ?? "app@concordis.ai";
-    const encoded = encodeURIComponent(titleTerms);
-    const url = `${OA_BASE}?filter=title.search:${encoded},has_abstract:true,type:article,concepts.id:${BIOMEDICAL_CONCEPT}&sort=cited_by_count:desc&per-page=${limit}&select=id,title,abstract_inverted_index,publication_year,primary_location,doi,cited_by_count&mailto=${email}`;
-    const res = await fetch(url, { headers: { "User-Agent": "Concordis/1.0" } });
-    if (!res.ok) return [];
-    const data = await res.json() as {
-      results: Array<{
-        id: string; title: string;
-        abstract_inverted_index: Record<string, number[]> | null;
-        publication_year: number | null;
-        primary_location: { source?: { display_name?: string } } | null;
-        doi: string | null; cited_by_count: number;
-      }>
-    };
-    return (data.results ?? []).map(w => ({
-      pmid: w.id, title: w.title ?? "",
-      abstract: invertedIndexToText(w.abstract_inverted_index),
-      year: w.publication_year ?? new Date().getFullYear(),
-      journal: w.primary_location?.source?.display_name ?? "Unknown Journal",
-      doi: w.doi?.replace("https://doi.org/", "") ?? "N/A",
-      citations: w.cited_by_count,
-    })).filter(p => p.title.length > 5 && p.abstract.length > 30);
-  } catch { return []; }
-}
-
-async function searchPubMed(query: string, limit = 5): Promise<RawPaper[]> {
+async function searchPubMed(query: string, limit = 6): Promise<RawPaper[]> {
   try {
     const searchRes = await fetch(
       `${PUBMED_BASE}/esearch.fcgi?db=pubmed&retmax=${limit}&retmode=json&sort=relevance&term=${encodeURIComponent(query)}&${TOOL_PARAM}`
@@ -140,17 +102,13 @@ function deduplicate(papers: RawPaper[]): RawPaper[] {
 
 export async function fetchPapers(query: string, meshTerms: string[] = []): Promise<RawPaper[]> {
   const keywords = topicWords(query);
-  const oaTitle = keywords.slice(0, 3).join(" ");
-  const pubmedQueries = [query, ...meshTerms.slice(0, 4)];
+  const queries = [query, ...meshTerms.slice(0, 4)];
 
-  const allResults = await Promise.all([
-    searchOpenAlex(oaTitle, 6),
-    ...pubmedQueries.map(q => searchPubMed(q, 5)),
-  ]);
-
+  const allResults = await Promise.all(queries.map(q => searchPubMed(q, 6)));
   const all = deduplicate(allResults.flat());
+
   const filtered = all.filter(p => titleMatches(p.title, keywords));
-  const candidates = filtered.length >= 2 ? filtered : all.slice(0, 8);
+  const candidates = filtered.length >= 2 ? filtered : all;
 
   return candidates
     .sort((a, b) => (b.citations ?? 0) - (a.citations ?? 0))

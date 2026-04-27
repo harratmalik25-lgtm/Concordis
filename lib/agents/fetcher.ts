@@ -12,7 +12,6 @@ export type RawPaper = {
 const PUBMED_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
 const OA_BASE     = "https://api.openalex.org/works";
 const WIKI_BASE   = "https://en.wikipedia.org/api/rest_v1/page/summary";
-const UNPAYWALL   = "https://api.unpaywall.org/v2";
 const TOOL_PARAM  = `tool=concordis&email=${process.env.PUBMED_EMAIL ?? "app@concordis.ai"}`;
 const DELAY_MS    = 400;
 
@@ -27,61 +26,44 @@ function invertedIndexToText(index: Record<string, number[]> | null): string {
   return words.filter(Boolean).join(" ");
 }
 
-function extractKeywords(text: string): string[] {
-  const stopwords = new Set([
-    "does","what","are","how","why","when","should","the","evidence","for",
-    "on","about","backed","by","rcts","rct","trial","study","studies","effect",
-    "effects","reduce","reducing","and","with","from","that","this","have","has",
-    "been","are","was","were","not","but","its","their","review","systematic",
-    "meta","analysis","clinical","randomized","controlled","quality","sleep",
-    "night","before","bed","timing","efficacy","outcomes","management","treatment",
+function topicWords(query: string): string[] {
+  const noise = new Set([
+    "does","what","are","how","why","when","should","the","evidence","for","on",
+    "about","backed","by","rct","rcts","trial","study","studies","effect","effects",
+    "reduce","reducing","and","with","from","that","this","have","has","been","was",
+    "were","not","but","its","their","review","analysis","clinical","randomized",
+    "controlled","outcomes","management","treatment","night","before","bed","timing",
+    "efficacy","quality","sleep","take","taking","use","using","can","could","would",
   ]);
-  return text.toLowerCase()
+  return query.toLowerCase()
     .replace(/[^a-z0-9 ]/g, " ")
     .split(/\s+/)
-    .filter(w => w.length > 2 && !stopwords.has(w));
+    .filter(w => w.length > 2 && !noise.has(w));
 }
 
-function isTitleRelevant(paper: RawPaper, coreKeywords: string[]): boolean {
-  if (coreKeywords.length === 0) return true;
-  const title = paper.title.toLowerCase();
-  return coreKeywords.some(k => title.includes(k));
+function titleMatches(title: string, keywords: string[]): boolean {
+  if (!keywords.length) return true;
+  const t = title.toLowerCase();
+  return keywords.some(k => t.includes(k));
 }
 
 export async function fetchWikiContext(query: string): Promise<string> {
   try {
-    const topic = query
-      .replace(/does|is|what|are|how|why|when|should|the|evidence|for|on|about|backed|by|rcts?|i|me|my/gi, "")
-      .trim().split(" ").filter((w: string) => w.length > 2).slice(0, 3).join(" ");
+    const topic = topicWords(query).slice(0, 3).join(" ");
+    if (!topic) return "";
     const res = await fetch(`${WIKI_BASE}/${encodeURIComponent(topic)}`,
       { headers: { "User-Agent": "Concordis/1.0 (app@concordis.ai)" } });
     if (!res.ok) return "";
     const data = await res.json() as { extract?: string; title?: string };
-    return data.extract ? `Wikipedia background on "${data.title}":\n${data.extract.slice(0, 600)}` : "";
+    return data.extract ? `Wikipedia on "${data.title}":\n${data.extract.slice(0, 500)}` : "";
   } catch { return ""; }
 }
 
-async function fetchFullText(doi: string): Promise<string | undefined> {
-  if (!doi || doi === "N/A") return undefined;
+async function searchOpenAlexByTitle(titleTerms: string, limit = 6): Promise<RawPaper[]> {
   try {
     const email = process.env.PUBMED_EMAIL ?? "app@concordis.ai";
-    const res = await fetch(`${UNPAYWALL}/${encodeURIComponent(doi)}?email=${email}`,
-      { headers: { "User-Agent": "Concordis/1.0" } });
-    if (!res.ok) return undefined;
-    const data = await res.json() as { is_oa: boolean; best_oa_location?: { url_for_pdf?: string | null } };
-    if (!data.is_oa || !data.best_oa_location?.url_for_pdf) return undefined;
-    const pdfRes = await fetch(data.best_oa_location.url_for_pdf, { headers: { "User-Agent": "Concordis/1.0" } });
-    if (!pdfRes.ok) return undefined;
-    const text = await pdfRes.text();
-    const readable = text.replace(/[^\x20-\x7E\n]/g, " ").replace(/\s+/g, " ").trim();
-    return readable.length > 200 ? readable.slice(0, 3000) : undefined;
-  } catch { return undefined; }
-}
-
-async function searchOpenAlex(searchTerm: string, limit = 5): Promise<RawPaper[]> {
-  try {
-    const email = process.env.PUBMED_EMAIL ?? "app@concordis.ai";
-    const url = `${OA_BASE}?search=${encodeURIComponent(searchTerm)}&filter=has_abstract:true,type:article&sort=cited_by_count:desc&per-page=${limit}&select=id,title,abstract_inverted_index,publication_year,primary_location,doi,cited_by_count&mailto=${email}`;
+    const encoded = encodeURIComponent(titleTerms);
+    const url = `${OA_BASE}?filter=title.search:${encoded},has_abstract:true,type:article&sort=cited_by_count:desc&per-page=${limit}&select=id,title,abstract_inverted_index,publication_year,primary_location,doi,cited_by_count&mailto=${email}`;
     const res = await fetch(url, { headers: { "User-Agent": "Concordis/1.0" } });
     if (!res.ok) return [];
     const data = await res.json() as {
@@ -104,10 +86,10 @@ async function searchOpenAlex(searchTerm: string, limit = 5): Promise<RawPaper[]
   } catch { return []; }
 }
 
-async function searchPubMed(searchTerm: string, limit = 5): Promise<RawPaper[]> {
+async function searchPubMed(query: string, limit = 6): Promise<RawPaper[]> {
   try {
     const searchRes = await fetch(
-      `${PUBMED_BASE}/esearch.fcgi?db=pubmed&retmax=${limit}&retmode=json&sort=relevance&term=${encodeURIComponent(searchTerm)}&${TOOL_PARAM}`
+      `${PUBMED_BASE}/esearch.fcgi?db=pubmed&retmax=${limit}&retmode=json&sort=relevance&term=${encodeURIComponent(query)}&${TOOL_PARAM}`
     );
     if (!searchRes.ok) return [];
     const sd = await searchRes.json() as { esearchresult: { idlist: string[] } };
@@ -156,16 +138,18 @@ function deduplicate(papers: RawPaper[]): RawPaper[] {
 }
 
 export async function fetchPapers(query: string, meshTerms: string[] = []): Promise<RawPaper[]> {
-  const coreKeywords = extractKeywords(query);
-  const searchTerms = [query, ...meshTerms.slice(0, 4)];
+  const keywords = topicWords(query);
+  const oaTitle = keywords.slice(0, 3).join(" ");
+  const pubmedQueries = [query, ...meshTerms.slice(0, 4)];
 
-  const allResults = await Promise.all(
-    searchTerms.flatMap(term => [searchOpenAlex(term, 5), searchPubMed(term, 5)])
-  );
+  const allResults = await Promise.all([
+    searchOpenAlexByTitle(oaTitle, 6),
+    ...pubmedQueries.map(q => searchPubMed(q, 4)),
+  ]);
 
   const all = deduplicate(allResults.flat());
-  const relevant = all.filter(p => isTitleRelevant(p, coreKeywords));
-  const candidates = relevant.length >= 3 ? relevant : all;
+  const filtered = all.filter(p => titleMatches(p.title, keywords));
+  const candidates = filtered.length >= 2 ? filtered : all;
 
   return candidates
     .sort((a, b) => (b.citations ?? 0) - (a.citations ?? 0))

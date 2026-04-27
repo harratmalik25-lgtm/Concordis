@@ -33,6 +33,12 @@ export async function GET(req: NextRequest): Promise<Response> {
         ]);
         send({ type: "papers:fetched", data: { count: rawPapers.length } });
 
+        if (rawPapers.length === 0) {
+          send({ type: "error", data: { message: "No papers found. Try different keywords.", retryable: true } });
+          controller.close();
+          return;
+        }
+
         const results = await Promise.allSettled(
           rawPapers.map(paper => analyzePaper(paper, query, wikiContext))
         );
@@ -46,19 +52,16 @@ export async function GET(req: NextRequest): Promise<Response> {
           send({ type: "paper:analyzed", data: paper });
         }
 
-        const relevant = analyzed.filter(p =>
-          p.relevanceScore >= 0.4 &&
-          p.primaryClaim.length > 30 &&
-          !p.primaryClaim.toLowerCase().includes("did not investigate")
-        );
+        const relevant = analyzed.filter(p => p.relevanceScore >= 0.25);
+        const toSynthesize = relevant.length > 0 ? relevant : analyzed;
 
-        if (relevant.length === 0) {
-          send({ type: "error", data: { message: "No relevant papers found. Try rephrasing.", retryable: true } });
+        if (toSynthesize.length === 0) {
+          send({ type: "error", data: { message: "Could not analyze any papers. Try rephrasing.", retryable: true } });
           controller.close();
           return;
         }
 
-        const consensus = await synthesizeConsensus(query, relevant, plan.meshTerms, wikiContext);
+        const consensus = await synthesizeConsensus(query, toSynthesize, plan.meshTerms, wikiContext);
         send({ type: "consensus:ready", data: consensus });
 
       } catch (err) {

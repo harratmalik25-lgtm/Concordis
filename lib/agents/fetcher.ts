@@ -35,7 +35,7 @@ function isRelevant(paper: RawPaper, query: string): boolean {
     .filter(w => w.length > 3 && !stopwords.has(w));
   const haystack = (paper.title + " " + paper.abstract).toLowerCase();
   const matches = keywords.filter(k => haystack.includes(k));
-  return matches.length >= Math.min(2, keywords.length);
+  return matches.length >= Math.min(1, keywords.length);
 }
 
 export async function fetchWikiContext(query: string): Promise<string> {

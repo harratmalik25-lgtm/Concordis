@@ -14,6 +14,7 @@ const OA_BASE     = "https://api.openalex.org/works";
 const WIKI_BASE   = "https://en.wikipedia.org/api/rest_v1/page/summary";
 const TOOL_PARAM  = `tool=concordis&email=${process.env.PUBMED_EMAIL ?? "app@concordis.ai"}`;
 const DELAY_MS    = 400;
+const BIOMEDICAL_CONCEPT = "C71924100";
 
 const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -33,7 +34,7 @@ function topicWords(query: string): string[] {
     "reduce","reducing","and","with","from","that","this","have","has","been","was",
     "were","not","but","its","their","review","analysis","clinical","randomized",
     "controlled","outcomes","management","treatment","night","before","bed","timing",
-    "efficacy","quality","sleep","take","taking","use","using","can","could","would",
+    "efficacy","take","taking","use","using","can","could","would","into","any",
   ]);
   return query.toLowerCase()
     .replace(/[^a-z0-9 ]/g, " ")
@@ -59,11 +60,11 @@ export async function fetchWikiContext(query: string): Promise<string> {
   } catch { return ""; }
 }
 
-async function searchOpenAlexByTitle(titleTerms: string, limit = 6): Promise<RawPaper[]> {
+async function searchOpenAlex(titleTerms: string, limit = 5): Promise<RawPaper[]> {
   try {
     const email = process.env.PUBMED_EMAIL ?? "app@concordis.ai";
     const encoded = encodeURIComponent(titleTerms);
-    const url = `${OA_BASE}?filter=title.search:${encoded},has_abstract:true,type:article&sort=cited_by_count:desc&per-page=${limit}&select=id,title,abstract_inverted_index,publication_year,primary_location,doi,cited_by_count&mailto=${email}`;
+    const url = `${OA_BASE}?filter=title.search:${encoded},has_abstract:true,type:article,concepts.id:${BIOMEDICAL_CONCEPT}&sort=cited_by_count:desc&per-page=${limit}&select=id,title,abstract_inverted_index,publication_year,primary_location,doi,cited_by_count&mailto=${email}`;
     const res = await fetch(url, { headers: { "User-Agent": "Concordis/1.0" } });
     if (!res.ok) return [];
     const data = await res.json() as {
@@ -86,7 +87,7 @@ async function searchOpenAlexByTitle(titleTerms: string, limit = 6): Promise<Raw
   } catch { return []; }
 }
 
-async function searchPubMed(query: string, limit = 6): Promise<RawPaper[]> {
+async function searchPubMed(query: string, limit = 5): Promise<RawPaper[]> {
   try {
     const searchRes = await fetch(
       `${PUBMED_BASE}/esearch.fcgi?db=pubmed&retmax=${limit}&retmode=json&sort=relevance&term=${encodeURIComponent(query)}&${TOOL_PARAM}`
@@ -143,13 +144,13 @@ export async function fetchPapers(query: string, meshTerms: string[] = []): Prom
   const pubmedQueries = [query, ...meshTerms.slice(0, 4)];
 
   const allResults = await Promise.all([
-    searchOpenAlexByTitle(oaTitle, 6),
-    ...pubmedQueries.map(q => searchPubMed(q, 4)),
+    searchOpenAlex(oaTitle, 6),
+    ...pubmedQueries.map(q => searchPubMed(q, 5)),
   ]);
 
   const all = deduplicate(allResults.flat());
   const filtered = all.filter(p => titleMatches(p.title, keywords));
-  const candidates = filtered.length >= 2 ? filtered : all;
+  const candidates = filtered.length >= 2 ? filtered : all.slice(0, 8);
 
   return candidates
     .sort((a, b) => (b.citations ?? 0) - (a.citations ?? 0))

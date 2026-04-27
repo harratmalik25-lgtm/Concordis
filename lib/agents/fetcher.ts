@@ -43,6 +43,7 @@ const JUNK_JOURNALS = new Set([
   "progress in materials science",
   "journal of the optical society",
   "annales pharmaceutiques francaises",
+  "magnesium research",
 ]);
 
 function isJunkJournal(journal: string): boolean {

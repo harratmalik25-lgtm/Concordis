@@ -2,43 +2,44 @@ import type { EvidenceGrade, ConsensusAnswer } from "../types/research.types";
 
 export function validateConsensusGrade(consensus: ConsensusAnswer): ConsensusAnswer {
   const papers = consensus.papers;
-  const hasRCT          = papers.some(p => p.studyType === "RCT");
+  const rctCount        = papers.filter(p => p.studyType === "RCT").length;
   const hasMetaAnalysis = papers.some(p => p.studyType === "Meta-Analysis");
   const cohortCount     = papers.filter(p => p.studyType === "Cohort").length;
   const highGradeCount  = papers.filter(p => p.grade === "High" || p.grade === "Moderate").length;
   const relevantCount   = papers.filter(p => p.relevanceScore >= 0.5).length;
 
-  let correctedLevel: EvidenceGrade = consensus.confidenceLevel;
-  let correctedPercent = consensus.confidencePercent;
+  let level   = consensus.confidenceLevel;
+  let percent = consensus.confidencePercent;
 
-  if (correctedLevel === "High" && !hasRCT && !hasMetaAnalysis) {
-    correctedLevel   = "Moderate";
-    correctedPercent = Math.min(correctedPercent, 74);
+  if (level === "High" && !(hasMetaAnalysis || rctCount >= 2)) {
+    level   = "Moderate";
+    percent = Math.min(percent, 74);
   }
 
-  if (correctedLevel === "Moderate") {
-    if (highGradeCount < 2 || relevantCount < 2) {
-      correctedLevel   = "Low";
-      correctedPercent = Math.min(correctedPercent, 49);
-    }
-    if (cohortCount >= 3 && highGradeCount >= 3) {
-      correctedLevel = "Moderate";
+  if (level === "Moderate") {
+    const hasRCT = rctCount >= 1;
+    const hasStrongCohorts = cohortCount >= 3 && highGradeCount >= 3;
+    if (!hasRCT && !hasStrongCohorts && relevantCount < 3) {
+      level   = "Low";
+      percent = Math.min(percent, 49);
     }
   }
 
   const caps: Record<EvidenceGrade, [number, number]> = {
-    "High":     [75, 95],
+    "High":     [75, 90],
     "Moderate": [50, 74],
     "Low":      [25, 49],
     "Very Low": [5,  24],
   };
-  const [min, max] = caps[correctedLevel];
-  correctedPercent = Math.max(min, Math.min(max, correctedPercent));
+  const [min, max] = caps[level];
+  percent = Math.max(min, Math.min(max, percent));
 
-  return { ...consensus, confidenceLevel: correctedLevel, confidencePercent: correctedPercent };
+  return { ...consensus, confidenceLevel: level, confidencePercent: percent };
 }
 
 export function gradeToPercent(grade: EvidenceGrade): number {
-  const map: Record<EvidenceGrade, number> = { "High": 85, "Moderate": 62, "Low": 37, "Very Low": 15 };
+  const map: Record<EvidenceGrade, number> = {
+    "High": 85, "Moderate": 62, "Low": 37, "Very Low": 15,
+  };
   return map[grade];
 }

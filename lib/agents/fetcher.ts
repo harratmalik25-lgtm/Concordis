@@ -37,6 +37,18 @@ function titleMatches(title: string, keywords: string[]): boolean {
   return keywords.some(k => t.includes(k));
 }
 
+const JUNK_JOURNALS = new Set([
+  "advanced engineering materials",
+  "international materials reviews",
+  "progress in materials science",
+  "journal of the optical society",
+  "annales pharmaceutiques francaises",
+]);
+
+function isJunkJournal(journal: string): boolean {
+  return JUNK_JOURNALS.has(journal.toLowerCase());
+}
+
 export async function fetchWikiContext(query: string): Promise<string> {
   try {
     const topic = topicWords(query).slice(0, 3).join(" ");
@@ -49,7 +61,7 @@ export async function fetchWikiContext(query: string): Promise<string> {
   } catch { return ""; }
 }
 
-async function searchPubMed(query: string, limit = 6): Promise<RawPaper[]> {
+async function searchPubMed(query: string, limit = 8): Promise<RawPaper[]> {
   try {
     const searchRes = await fetch(
       `${PUBMED_BASE}/esearch.fcgi?db=pubmed&retmax=${limit}&retmode=json&sort=relevance&term=${encodeURIComponent(query)}&${TOOL_PARAM}`
@@ -75,7 +87,7 @@ async function searchPubMed(query: string, limit = 6): Promise<RawPaper[]> {
         journal: doc?.fulljournalname ?? "Unknown Journal",
         doi: doc?.elocationid?.replace("doi: ", "") ?? "N/A",
       };
-    }).filter(p => p.title.length > 5);
+    }).filter(p => p.title.length > 5 && !isJunkJournal(p.journal));
     if (!papers.length) return [];
     await delay(DELAY_MS);
     const fetchRes = await fetch(
@@ -103,13 +115,10 @@ function deduplicate(papers: RawPaper[]): RawPaper[] {
 export async function fetchPapers(query: string, meshTerms: string[] = []): Promise<RawPaper[]> {
   const keywords = topicWords(query);
   const queries = [query, ...meshTerms.slice(0, 4)];
-
-  const allResults = await Promise.all(queries.map(q => searchPubMed(q, 6)));
+  const allResults = await Promise.all(queries.map(q => searchPubMed(q, 8)));
   const all = deduplicate(allResults.flat());
-
   const filtered = all.filter(p => titleMatches(p.title, keywords));
-  const candidates = filtered.length >= 2 ? filtered : all;
-
+  const candidates = filtered.length >= 3 ? filtered : all;
   return candidates
     .sort((a, b) => (b.citations ?? 0) - (a.citations ?? 0))
     .slice(0, 8);

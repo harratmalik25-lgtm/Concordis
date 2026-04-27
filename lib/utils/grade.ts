@@ -4,24 +4,19 @@ export function deriveConfidence(papers: PaperAnalysis[]): { level: EvidenceGrad
   const relevant = papers.filter(p => p.relevanceScore >= 0.4);
   if (relevant.length === 0) return { level: "Very Low", percent: 10 };
 
-  const rctCount  = relevant.filter(p => p.studyType === "RCT").length;
-  const metaCount = relevant.filter(p => p.studyType === "Meta-Analysis").length;
+  const rctCount    = relevant.filter(p => p.studyType === "RCT").length;
+  const metaCount   = relevant.filter(p => p.studyType === "Meta-Analysis").length;
   const cohortCount = relevant.filter(p => p.studyType === "Cohort").length;
-  const srCount   = relevant.filter(p =>
-    p.studyType === "Meta-Analysis" ||
-    p.primaryClaim.toLowerCase().includes("systematic review") ||
-    p.gradeRationale.toLowerCase().includes("systematic")
-  ).length;
 
-  if ((rctCount >= 2 && relevant.length >= 4) || (metaCount >= 1 && rctCount >= 1)) {
-    return { level: "High", percent: 82 };
-  }
-  if (rctCount >= 1 || srCount >= 2 || (cohortCount >= 4 && relevant.length >= 5)) {
-    return { level: "Moderate", percent: rctCount >= 1 ? 62 : 55 };
-  }
-  if (relevant.length >= 2) {
-    return { level: "Low", percent: 35 };
-  }
+  if (rctCount >= 2 && metaCount >= 1) return { level: "High",     percent: 82 };
+  if (rctCount >= 3)                   return { level: "High",     percent: 80 };
+
+  if (rctCount >= 1)                                return { level: "Moderate", percent: 62 };
+  if (metaCount >= 2)                               return { level: "Moderate", percent: 60 };
+  if (cohortCount >= 5 && relevant.length >= 5)     return { level: "Moderate", percent: 55 };
+
+  if (relevant.length >= 2) return { level: "Low", percent: 35 };
+
   return { level: "Very Low", percent: 12 };
 }
 

@@ -12,42 +12,54 @@ export type RawPaper = {
 const PUBMED_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
 const WIKI_BASE   = "https://en.wikipedia.org/api/rest_v1/page/summary";
 const TOOL_PARAM  = `tool=concordis&email=${process.env.PUBMED_EMAIL ?? "app@concordis.ai"}`;
-const DELAY_MS    = 400;
+const DELAY_MS    = 350;
 
 const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
+const NOISE = new Set([
+  "does","what","are","how","why","when","should","the","evidence","for","on",
+  "about","backed","by","rct","rcts","trial","study","studies","and","with",
+  "from","that","this","have","has","been","was","were","not","but","its",
+  "their","clinical","outcomes","management","take","taking","use","using",
+  "can","could","would","into","any","improve","improves","increased","decrease",
+  "impact","effect","effects","role","relationship","between","association",
+]);
+
 function topicWords(query: string): string[] {
-  const noise = new Set([
-    "does","what","are","how","why","when","should","the","evidence","for","on",
-    "about","backed","by","rct","rcts","trial","study","studies","effect","effects",
-    "reduce","reducing","and","with","from","that","this","have","has","been","was",
-    "were","not","but","its","their","review","analysis","clinical","randomized",
-    "controlled","outcomes","management","treatment","night","before","bed","timing",
-    "efficacy","take","taking","use","using","can","could","would","into","any",
-  ]);
   return query.toLowerCase()
     .replace(/[^a-z0-9 ]/g, " ")
     .split(/\s+/)
-    .filter(w => w.length > 2 && !noise.has(w));
+    .filter(w => w.length > 2 && !NOISE.has(w));
+}
+
+function buildPubMedQueries(query: string): string[] {
+  const words = topicWords(query);
+  if (words.length === 0) return [query];
+
+  const top2 = words.slice(0, 2);
+  const queries: string[] = [
+    top2.map(w => `${w}[ti]`).join(" AND "),
+    words.map(w => `${w}[tiab]`).join(" AND "),
+    words.join(" "),
+    top2.map(w => `${w}[tiab]`).join(" AND ") + " AND humans[mesh]",
+  ];
+
+  if (words.some(w => ["eating","fasting","restricted","intermittent"].includes(w)))
+    queries.push("time restricted eating[tiab] OR intermittent fasting[tiab]");
+  if (words.some(w => ["cold","cryotherapy"].includes(w)))
+    queries.push("cold water immersion[tiab] OR cold exposure[tiab] OR cryotherapy[tiab]");
+  if (words.includes("creatine"))
+    queries.push("creatine supplementation[tiab] AND cognitive[tiab]");
+  if (words.includes("testosterone"))
+    queries.push("testosterone[tiab] AND " + words.filter(w => w !== "testosterone").map(w => `${w}[tiab]`).join(" AND "));
+
+  return queries.filter(q => q.length > 0);
 }
 
 function titleMatches(title: string, keywords: string[]): boolean {
   if (!keywords.length) return true;
   const t = title.toLowerCase();
   return keywords.some(k => t.includes(k));
-}
-
-const JUNK_JOURNALS = new Set([
-  "advanced engineering materials",
-  "international materials reviews",
-  "progress in materials science",
-  "journal of the optical society",
-  "annales pharmaceutiques francaises",
-  "magnesium research",
-]);
-
-function isJunkJournal(journal: string): boolean {
-  return JUNK_JOURNALS.has(journal.toLowerCase());
 }
 
 export async function fetchWikiContext(query: string): Promise<string> {
@@ -88,7 +100,7 @@ async function searchPubMed(query: string, limit = 8): Promise<RawPaper[]> {
         journal: doc?.fulljournalname ?? "Unknown Journal",
         doi: doc?.elocationid?.replace("doi: ", "") ?? "N/A",
       };
-    }).filter(p => p.title.length > 5 && !isJunkJournal(p.journal));
+    }).filter(p => p.title.length > 5);
     if (!papers.length) return [];
     await delay(DELAY_MS);
     const fetchRes = await fetch(
@@ -113,13 +125,16 @@ function deduplicate(papers: RawPaper[]): RawPaper[] {
   });
 }
 
-export async function fetchPapers(query: string, meshTerms: string[] = []): Promise<RawPaper[]> {
+export async function fetchPapers(query: string, _meshTerms: string[] = []): Promise<RawPaper[]> {
   const keywords = topicWords(query);
-  const queries = [query, ...meshTerms.slice(0, 4)];
+  const queries  = buildPubMedQueries(query);
+
   const allResults = await Promise.all(queries.map(q => searchPubMed(q, 8)));
-  const all = deduplicate(allResults.flat());
-  const filtered = all.filter(p => titleMatches(p.title, keywords));
-  const candidates = filtered.length >= 3 ? filtered : all;
+  const all        = deduplicate(allResults.flat());
+
+  const filtered   = all.filter(p => titleMatches(p.title, keywords));
+  const candidates = filtered.length >= 2 ? filtered : all;
+
   return candidates
     .sort((a, b) => (b.citations ?? 0) - (a.citations ?? 0))
     .slice(0, 8);

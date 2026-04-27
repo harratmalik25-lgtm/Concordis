@@ -1,9 +1,9 @@
 "use client";
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { TopNav }     from "@/components/layout/TopNav";
-import { SideNav }    from "@/components/layout/SideNav";
-import { SearchBar }  from "@/components/research/SearchBar";
+import { TopNav }    from "@/components/layout/TopNav";
+import { SideNav }   from "@/components/layout/SideNav";
+import { SearchBar } from "@/components/research/SearchBar";
 
 const EXAMPLES = [
   "Does sauna use reduce cardiovascular risk?",
@@ -23,10 +23,10 @@ export default function Home() {
   }, [router]);
 
   return (
-    <div className="min-h-screen bg-scientific-grid" style={{ background:"#051424" }}>
+    <div className="min-h-screen bg-scientific-grid" style={{ background:"var(--color-bg,#051424)" }}>
       <div className="blob-bg"><div className="blob blob-1"/><div className="blob blob-2"/></div>
-      <TopNav activeTab="Research"/>
-      <SideNav activeItem="Workspace" onNewQuery={() => router.push("/")}/>
+      <TopNav/>
+      <SideNav/>
       <main className="md:pl-64 mt-16 min-h-screen flex items-center justify-center px-6">
         <div className="w-full max-w-3xl flex flex-col gap-10 py-24 animate-fade-in-up">
           <div className="text-center flex flex-col gap-4">
@@ -38,15 +38,13 @@ export default function Home() {
             </div>
             <h1 className="font-bold tracking-tight neon-text-glow"
               style={{ fontSize:"clamp(36px,6vw,64px)", lineHeight:1.1, letterSpacing:"-0.02em", fontFamily:"Space Grotesk", color:"#dbfcff" }}>
-              Query the<br/><span style={{ color:"#00f0ff" }}>Concordis</span>
+              Query the<br/><span style={{ color:"var(--color-primary,#00f0ff)" }}>Concordis</span>
             </h1>
             <p className="text-lg max-w-xl mx-auto" style={{ color:"#849495", fontFamily:"Inter" }}>
               Evidence synthesis across scientific literature — not one paper, but the weight of consensus.
             </p>
           </div>
-
           <SearchBar onSubmit={handleSubmit} isLoading={loading}/>
-
           <div className="flex items-center justify-center gap-6 flex-wrap">
             {[["check_circle","GRADE Methodology"],["hub","Nemotron Orchestrator"],["science","Gemma Analyzer"],["menu_book","PubMed + Semantic Scholar"]].map(([icon,label]) => (
               <div key={label} className="flex items-center gap-2 text-xs" style={{ color:"#849495", fontFamily:"Space Grotesk" }}>
@@ -54,7 +52,6 @@ export default function Home() {
               </div>
             ))}
           </div>
-
           <div className="flex flex-col items-center gap-3">
             <span className="text-xs uppercase tracking-widest" style={{ color:"#849495", fontFamily:"Space Grotesk" }}>Try these queries</span>
             <div className="flex flex-wrap gap-2 justify-center">

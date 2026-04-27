@@ -1,5 +1,5 @@
 "use client";
-import { use, useEffect } from "react";
+import { useEffect } from "react";
 import { useRouter }      from "next/navigation";
 import { useResearchStore }     from "@/lib/store/research.store";
 import { ResearchStream }       from "@/components/research/ResearchStream";
@@ -14,10 +14,10 @@ import { EvidenceGradeBadge }   from "@/components/research/EvidenceGradeBadge";
 import { SectionDivider }       from "@/components/ui/SectionDivider";
 import { PaperCardSkeleton, ConsensusSkeleton } from "@/components/research/LoadingSkeleton";
 
-type Props = { params: Promise<{ queryId: string }> };
+type Props = { params: { queryId: string } };
 
 export default function ResearchPage({ params }: Props) {
-  const { queryId } = use(params);
+  const { queryId } = params;
   const query  = decodeURIComponent(queryId);
   const router = useRouter();
 
@@ -45,8 +45,8 @@ export default function ResearchPage({ params }: Props) {
       {/* SSE consumer — renders nothing, drives store */}
       <ResearchStream query={query}/>
 
-      <TopNav activeTab="Research"/>
-      <SideNav activeItem="Workspace" onNewQuery={() => { reset(); router.push("/"); }}/>
+      <TopNav/>
+      <SideNav/>
 
       <main className="md:pl-64 mt-16 min-h-screen px-6 py-8 max-w-[1200px] mx-auto">
         <div className="flex flex-col gap-6">

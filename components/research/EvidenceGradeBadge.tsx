@@ -8,16 +8,18 @@ const gradeConfig: Record<EvidenceGrade, { bg: string; border: string; text: str
   'Very Low': { bg: 'rgba(255,180,171,0.15)',border: 'rgba(255,180,171,0.35)',text: '#ffb4ab', dot: '#ffb4ab', label: 'Very Low Evidence' },
 };
 
+const FALLBACK = gradeConfig['Low'];
+
 type Props = {
-  grade: EvidenceGrade;
+  grade: string;
   showLabel?: boolean;
   size?: 'sm' | 'md';
 };
 
 export const EvidenceGradeBadge: React.FC<Props> = ({ grade, showLabel = true, size = 'md' }) => {
-  const cfg = gradeConfig[grade];
+  const cfg = gradeConfig[grade as EvidenceGrade] ?? FALLBACK;
   const px = size === 'sm' ? '10px' : '14px';
-  const py = size === 'sm' ? '3px' : '6px';
+  const py = size === 'sm' ? '3px'  : '6px';
   const fs = size === 'sm' ? '11px' : '13px';
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full font-semibold"
